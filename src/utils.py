@@ -97,8 +97,8 @@ def check_idempotence(spreadsheet):
         logger.info("Reading CSV into pandas dataframe")
         df = pd.read_csv(csv_path)
         raw_df = df.iloc[:200]
-        raw_df = raw_df.replace([np.inf, -np.inf], np.nan)
-        raw_df = raw_df.astype(object).where(raw_df.notnull(), None)
+        raw_df = raw_df.replace([np.inf, -np.inf], np.nan).fillna("")
+        # raw_df = raw_df.astype(object).where(raw_df.notnull(), None)
     
         
         raw_df_hash = df_hash(raw_df)
@@ -204,8 +204,8 @@ def clean_data(spreadsheet: Spreadsheet, worksheet: Worksheet):
     raw_df = raw_df.replace(['Initmates', 'Intimate'], 'Intimates')
 
     # set type of dress categories to category
-    cat_cols = ['division_name', 'department_name', 'class_name']
-    raw_df[cat_cols] = raw_df[cat_cols].astype("category")
+    # cat_cols = ['division_name', 'department_name', 'class_name']
+    # raw_df[cat_cols] = raw_df[cat_cols].astype("category")
 
     # save dataframe to sheet
     if "staging" not in [ws.title for ws in spreadsheet.worksheets()]:
@@ -246,7 +246,7 @@ def summarization(
     # df = df.iloc[:100]
 
     # Batch size
-    batch_size = 5
+    batch_size = 10
 
     # Optimized prompt template
     system_prompt = """
@@ -322,7 +322,9 @@ def summarization(
             valid_reviews_df.at[idx, sentiment_column] = result.get("sentiment")
             df = df.combine_first(valid_reviews_df)
             
-    df.loc[:, "action_needed"] = np.where(df["sentiment"] == "negative", "Yes", "No")
+    df.loc[:, "action_needed"] = df["sentiment"].apply(lambda x: "Yes" if x == "negative" else "No")
+    df = df.replace([np.inf, -np.inf], np.nan).fillna("")
+
     
     worksheet = check_sheet_exists(spreadsheet, "processed")
     worksheet.update([df.columns.values.tolist()] + df.values.tolist())
@@ -332,118 +334,118 @@ def summarization(
         
       
       
-def batch(df, batch_size, review_column: str="review_text"):
-    for i in range(0, len(df), batch_size):
-        batch = df.iloc[i : i + batch_size]
-        #check for case of nan or empty reviews
-        valid_reviews_df = batch[batch[review_column].notnull() & (batch[review_column].str.strip() != '')]
+# def batch(df, batch_size, review_column: str="review_text"):
+#     for i in range(0, len(df), batch_size):
+#         batch = df.iloc[i : i + batch_size]
+#         #check for case of nan or empty reviews
+#         valid_reviews_df = batch[batch[review_column].notnull() & (batch[review_column].str.strip() != '')]
         
-        valid_reviews_list = valid_reviews_df[review_column].tolist()
-        valid_index_list = valid_reviews_df.index.tolist()
+#         valid_reviews_list = valid_reviews_df[review_column].tolist()
+#         valid_index_list = valid_reviews_df.index.tolist()
 
         
-        yield {
-                "valid_reviews_list": valid_reviews_list,
-                "valid_index_list": valid_index_list
-                }
+#         yield {
+#                 "valid_reviews_list": valid_reviews_list,
+#                 "valid_index_list": valid_index_list
+#                 }
                 
-async def call_groq_with_retry(*args, **kwargs):
-    max_retries = 5
-    for _ in range(max_retries):
-        try:
-            return await client.chat.completions.create(*args, **kwargs)
-        except groq.RateLimitError:
-            wait = 7 + random.random()  # avoid thundering herd
-            print(f"Rate limited. Waiting {wait:.2f}s...")
-            await asyncio.sleep(wait)
+# async def call_groq_with_retry(*args, **kwargs):
+#     max_retries = 5
+#     for _ in range(max_retries):
+#         try:
+#             return await client.chat.completions.create(*args, **kwargs)
+#         except groq.RateLimitError:
+#             wait = 7 + random.random()  # avoid thundering herd
+#             print(f"Rate limited. Waiting {wait:.2f}s...")
+#             await asyncio.sleep(wait)
 
-    raise Exception("Max retries exceeded")
+#     raise Exception("Max retries exceeded")
         
        
-async def summarize_batch(batch):
-    user_prompt = f"Here is the review:\n{json.dumps(batch, indent=2)}"
+# async def summarize_batch(batch):
+#     user_prompt = f"Here is the review:\n{json.dumps(batch, indent=2)}"
     
-    async with sem:
-        response = await client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user",    "content": user_prompt},
-            ],
-            temperature=0.4,
-            max_completion_tokens=20,
-            top_p=1,
-        )
+#     async with sem:
+#         response = await client.chat.completions.create(
+#             model="openai/gpt-oss-120b",
+#             messages=[
+#                 {"role": "system", "content": system_prompt},
+#                 {"role": "user",    "content": user_prompt},
+#             ],
+#             temperature=0.4,
+#             max_completion_tokens=20,
+#             top_p=1,
+#         )
 
 
-    # Extract generated JSON string
-    raw_output = response.choices[0].message.content
-    strip_output = raw_output.strip()
+#     # Extract generated JSON string
+#     raw_output = response.choices[0].message.content
+#     strip_output = raw_output.strip()
     
-    try:
-        results = json.loads(strip_output)
-        # print("results", results)
-    except json.JSONDecodeError:
-        logger.error({
-            "status": "error",
-            "message": "JSON parse error for batch",
-            "raw_output": raw_output
-        }
-        )
-        raise Exception({
-            "status": "error",
-            "message": "JSON parse error for batch",
-            "raw_output": raw_output
-        })
+#     try:
+#         results = json.loads(strip_output)
+#         # print("results", results)
+#     except json.JSONDecodeError:
+#         logger.error({
+#             "status": "error",
+#             "message": "JSON parse error for batch",
+#             "raw_output": raw_output
+#         }
+#         )
+#         raise Exception({
+#             "status": "error",
+#             "message": "JSON parse error for batch",
+#             "raw_output": raw_output
+#         })
         
-    return results
+#     return results
     
 
           
     
-async def async_summarization(  
-                    df: pd.DataFrame, 
-                    spreadsheet: Spreadsheet):
-    """
-    Summarizes customer reviews in batches of 10 using Groq API.
-    Adds two new columns: summary + sentiment.
-    """
+# async def async_summarization(  
+#                     df: pd.DataFrame, 
+#                     spreadsheet: Spreadsheet):
+#     """
+#     Summarizes customer reviews in batches of 10 using Groq API.
+#     Adds two new columns: summary + sentiment.
+#     """
     
-    # Prepare empty columns
-    df["summary"] = None
-    df["sentiment"] = None
+#     # Prepare empty columns
+#     df["summary"] = None
+#     df["sentiment"] = None
     
-    # df = df.iloc[:100].copy()
+#     # df = df.iloc[:100].copy()
 
-    # Batch size
-    batch_size = 10
+#     # Batch size
+#     batch_size = 10
 
 
-    # Process in batches
-    valid_reviews_lists = [b.get("valid_reviews_list") for b in batch(df, batch_size)]
-    valid_index_lists = [b.get("valid_index_list") for b in batch(df, batch_size)]
-    tasks = [asyncio.create_task(summarize_batch(b)) for b in valid_reviews_lists]
-    # results = []
-    # for i in range(0, len(tasks), 2):
-    #     results.append(await asyncio.gather(*tasks[i:i+2]))
-    results = await asyncio.gather(*tasks)
-    print(len(results))
+#     # Process in batches
+#     valid_reviews_lists = [b.get("valid_reviews_list") for b in batch(df, batch_size)]
+#     valid_index_lists = [b.get("valid_index_list") for b in batch(df, batch_size)]
+#     tasks = [asyncio.create_task(summarize_batch(b)) for b in valid_reviews_lists]
+#     # results = []
+#     # for i in range(0, len(tasks), 2):
+#     #     results.append(await asyncio.gather(*tasks[i:i+2]))
+#     results = await asyncio.gather(*tasks)
+#     print(len(results))
     
     
-    flattened_summary = [item.get("summary") for sublist in results for item in sublist]
-    flattened_sentiment = [item.get("sentiment") for sublist in results for item in sublist]
-    flattened_index = [item for sublist in valid_index_lists for item in sublist]
+#     flattened_summary = [item.get("summary") for sublist in results for item in sublist]
+#     flattened_sentiment = [item.get("sentiment") for sublist in results for item in sublist]
+#     flattened_index = [item for sublist in valid_index_lists for item in sublist]
 
-    df.loc[flattened_index, "summary"] = flattened_summary
-    df.loc[flattened_index, "sentiment"] = flattened_sentiment
+#     df.loc[flattened_index, "summary"] = flattened_summary
+#     df.loc[flattened_index, "sentiment"] = flattened_sentiment
     
 
-    df.loc[:, "action_needed"] = np.where(df["sentiment"] == "positive", "No", "Yes")
+#     df.loc[:, "action_needed"] = np.where(df["sentiment"] == "positive", "No", "Yes")
     
-    worksheet = check_sheet_exists(spreadsheet, "processed")
-    worksheet.update([df.columns.values.tolist()] + df.values.tolist())
+#     worksheet = check_sheet_exists(spreadsheet, "processed")
+#     worksheet.update([df.columns.values.tolist()] + df.values.tolist())
        
-    return df
+#     return df
 
     
     

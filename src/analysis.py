@@ -3,29 +3,55 @@ import pandas as pd
 
 
 
-def analyse_data():
+def get_processed_as_df():
     spreadsheet = authenticate()
     worksheet = spreadsheet.worksheet("processed")
     df = pd.DataFrame(worksheet.get_all_records())
-    df["class_name"] = df["class_name"].astype("category")
-    df_clean = df.dropna(subset=["class_name"])
+    # df = df[df["sentiment"] != ""]
     
-    # percentage breakdow of sentiments per clothing class
-    sentiment_counts = df_clean.groupby(["class_name", "sentiment"]).size().reset_index(name="count")
-    class_totals = df_clean.groupby("class_name").size().reset_index(name="total")
+    return df
+
+
+def analyse_percentage():
+    df = get_processed_as_df()
+    df_clean = df[df["sentiment"] != '']
     
-    sentiment_summary = sentiment_counts.merge(class_totals, on="class_name")
+    # percentage breakdown of sentiments per clothing class
+    group = df_clean.groupby(["class_name", "sentiment"]).size()
+    total = df_clean.groupby("class_name").size()
     
-    sentiment_summary["percentage"] = (sentiment_summary["count"] / sentiment_summary["total"]) * 100
+    percentage = (group / total) * 100
+    
+    percentage_df = percentage.reset_index(name="percentage")
     
     
+    return percentage_df
+    
+
+def calc_popularity():
+    df = get_processed_as_df()
+
+    grouped_df = df.groupby('class_name').agg(
+        positives=("sentiment", lambda x: (x=='positive').sum()),
+        negatives=("sentiment", lambda x: (x=='negative').sum()),
+        neutral=("sentiment", lambda x: (x=='neutral').sum())
+    )
+    
+    return grouped_df
     
     
+def sentiment_distribution():
+    df = get_processed_as_df()
+    df_clean = df[df["sentiment"] != '']
+    length = len(df_clean)
+  
     
+    df_clean = df_clean.groupby("sentiment").agg(
+        count=("sentiment", lambda x: x.count()),
+        percentage=("sentiment", lambda x: f"{((x.count() / length) * 100):.2f}")
+    )
     
-    # df_clean["percentage"] = grouped["sentiment"].transform(lambda x: 100 * (x.count() / len(x)))
+    return df_clean
     
-    # df.loc[:, "pct%"] = df.groupby(["class_name", "sentiment"]).value_counts(normalize=True).mul(100)
-    print(sentiment_summary[["class_name", "sentiment", "percentage"]])
-    
-analyse_data()    
+  
+print(sentiment_distribution())
